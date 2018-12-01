@@ -11,7 +11,8 @@ import time
 
 # Initialize logger
 logging.basicConfig(
-    format='%(asctime)s,%(msecs)03d - %(levelname)s - %(funcName)s %(message)s',
+    format=
+    '%(asctime)s,%(msecs)03d - %(levelname)s - %(funcName)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     level=logging.NOTSET)
 logger = logging.getLogger()
@@ -19,7 +20,7 @@ logger = logging.getLogger()
 
 class LFTPClient(object):
     def __init__(self, command, serverAddress, filename):
-        self.finished = False
+        self.running = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.serverAddress = serverAddress
         self.file = open(filename, 'rb')
@@ -27,15 +28,17 @@ class LFTPClient(object):
         self.duplicateAck = 0
         # self.rwnd doesn't contains the length of segment header for convenient
         self.rwnd = 0
-        self.TimeoutInterval = 1
-        self.TimeStart = time
+        self.TimeoutInterval = 1.0
+        self.TimeStart = time.time()
         # SYN
-        self.SndBuffer = [(self.NextSeqNum,
-                           self.toHeader(seqNum=self.NextSeqNum, sf=1) +
-                           json.dumps({
-                               'command': command,
-                               'filename': filename
-                           }).encode(), False)]  # [(SeqNum, Segment, Sent)]
+        self.SndBuffer = [[
+            self.NextSeqNum,
+            self.toHeader(seqNum=self.NextSeqNum, sf=1) + json.dumps(
+                {
+                    'command': command,
+                    'filename': filename
+                }).encode(), False
+        ]]  # [[SeqNum, Segment, Sent]]
         # Multithreading
         self.lock = threading.Lock()
         self.pool = [
@@ -46,6 +49,7 @@ class LFTPClient(object):
         ]
 
     def start(self):
+        self.running = True
         for t in self.pool:
             t.start()
         logger.info('Start')
@@ -67,48 +71,46 @@ class LFTPClient(object):
                             segment[10:12], byteorder="little")
 
     def fillSndBuffer(self):
-        while True:
+        while self.running:
             # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 20 - 8 = 548
             # Here use 536 as same as TCP
-            # Suppose capacity of self.SndBuffer is 16384 bytes, 16384 / 576 roughly 28 segments
+            # Suppose capacity of self.SndBuffer is 65536 bytes, 65536 / 576 roughly 113 segments
             # self.SndBuffer is small so the flow control effect is not significant
-            if len(self.SndBuffer) < 28:
+            if len(self.SndBuffer) < 113:
                 segment = self.file.read(536)
                 self.lock.acquire()
                 seqNum = self.SndBuffer[-1][0] + len(
                     self.SndBuffer[-1][1]) - 12
                 if len(segment) == 0:
                     # FIN, '0' is placeholder
-                    self.SndBuffer.append(
-                        (seqNum, self.toHeader(seqNum=seqNum, sf=2) + b'0',
-                         False))
+                    self.SndBuffer.append([
+                        seqNum,
+                        self.toHeader(seqNum=seqNum, sf=2) + b'0', False
+                    ])
                     self.lock.release()
                     break
                 self.SndBuffer.append(
-                    (seqNum, self.toHeader(seqNum=seqNum) + segment, False))
+                    [seqNum,
+                     self.toHeader(seqNum=seqNum) + segment, False])
                 self.lock.release()
-            if self.finished:
-                break
 
     def castSndBuffer(self):
-        while True:
+        while self.running:
             if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
                 self.lock.acquire()
                 self.SndBuffer.pop(0)
                 if len(self.SndBuffer) == 0:
+                    self.running = False
                     self.file.close()
                     self.socket.close()
-                    self.finished = True
                     logger.info('Finished')
                 self.lock.release()
-            if self.finished:
-                break
 
     def rcvAckAndRwnd(self):
-        while True:
+        while self.running:
+            self.lock.acquire()
             segment = self.socket.recvfrom(1024)[0]
             _, ackNum, _, _, rwnd = self.fromHeader(segment)
-            self.lock.acquire()
             if ackNum == self.NextSeqNum:
                 self.duplicateAck += 1
             else:
@@ -117,11 +119,9 @@ class LFTPClient(object):
             self.TimeStart = time.time()
             self.rwnd = rwnd
             self.lock.release()
-            if self.finished:
-                break
 
     def retransmission(self):
-        self.lock.acquire()
+        # self.lock.acquire()
         for segment in self.SndBuffer:
             # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
@@ -129,28 +129,23 @@ class LFTPClient(object):
                 self.TimeStart = time.time()
                 self.duplicateAck = 1
                 logger.info('Sequence number:{0}'.format(self.NextSeqNum))
-                self.lock.release()
                 break
-        self.lock.release()
+        # self.lock.release()
 
     def detectTimeout(self):
-        while True:
+        while self.running:
             if time.time() - self.TimeStart > self.TimeoutInterval:
-                logger.warn('Sequence number:{0}'.format(self.NextSeqNum))
+                logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
                 self.retransmission()
-            if self.finished:
-                break
 
     def detectDuplicateAck(self):
-        while True:
+        while self.running:
             if self.duplicateAck > 2:
-                logger.warn('Sequence number:{0}'.format(self.NextSeqNum))
+                logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
                 self.retransmission()
-            if self.finished:
-                break
 
     def slideWindow(self):
-        while True:
+        while self.running:
             self.lock.acquire()
             for i in range(len(self.SndBuffer)):
                 # Flow control
@@ -163,8 +158,6 @@ class LFTPClient(object):
                 elif self.SndBuffer[i][2] == False:
                     break
             self.lock.release()
-            if self.finished:
-                break
 
 
 def parseParameter():
