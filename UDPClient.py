@@ -1,6 +1,5 @@
 # Programming UDP with the terminology and idea of TCP
-# ？暂时不考虑超过 4294967296 bytes 的文件
-# 修改握手和挥手
+# 暂时不考虑超过 4294967296 bytes 的文件
 import socket
 import sys
 import logging
@@ -18,23 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 
-def parseParameter():
-    # Sending file should use the following format
-    #   LFTP lsend servername:serverport mylargefile
-    # Getting file should use the following format
-    #   LFTP lget servername:serverport mylargefile
-    serverName, serverPort = sys.argv[2].split(':')
-    serverAddress = (serverName, int(serverPort))
-    print(serverAddress)
-    filename = sys.argv[3]
-    print(filename)
-    logger.info('Command:{0} Address:{1} File:{2}'.format(
-        sys.argv[1], serverAddress, filename))
-    return sys.argv[1], serverAddress, filename
-
-
 # 87380、16384
-class LFTP(object):
+class LFTPClient(object):
     def __init__(self, command, serverAddress, filename):
         self.finished = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -42,9 +26,6 @@ class LFTP(object):
         self.file = open(filename, 'rb')
         self.NextSeqNum = random.randint(1000, 10000)
         self.duplicateAck = 0
-        # self.SendBase = self.NextSeqNum
-        # self.LastByteSent = 0
-        # self.LastByteAcked = 0
         # Dual purpose
         self.rwnd = 0
         self.TimeoutInterval = 1
@@ -89,18 +70,21 @@ class LFTP(object):
             # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 8 = 568
             # But here use 536 as same as TCP
             # Suppose capacity of SndBuffer is 16384 bytes, 16384 / 536 roughly 30 segments
-            # 这里可能有点小导致流控制发挥不了作用
+            # 这里可能有点小导致流控制作用不大
             if len(self.SndBuffer) < 30:
                 segment = self.file.read(536)
-                if len(segment) == 0:
-                    # FIN
-                    break
                 self.lock.acquire()
                 seqNum = self.SndBuffer[-1][0] + len(
                     self.SndBuffer[-1][1]) - 12
-                self.SndBuffer.append(seqNum,
-                                      self.toHeader(seqNum=seqNum) + segment,
-                                      False)
+                if len(segment) == 0:
+                    # FIN
+                    self.SndBuffer.append(
+                        (seqNum, self.toHeader(seqNum=seqNum, sf=2) + b'0',
+                         False))
+                    self.lock.release()
+                    break
+                self.SndBuffer.append(
+                    (seqNum, self.toHeader(seqNum=seqNum) + segment, False))
                 self.lock.release()
             if self.finished:
                 break
@@ -113,14 +97,14 @@ class LFTP(object):
                 if len(self.SndBuffer) == 0:
                     self.socket.close()
                     self.finished = True
-                    # logger
+                    logger.info('Finished')
                 self.lock.release()
             if self.finished:
                 break
 
     def rcvAckAndRwnd(self):
         while True:
-            segment = self.socket.recvfrom(1024)
+            segment = self.socket.recvfrom(1024)[0]
             header = self.fromHeader(segment)
             self.lock.acquire()
             if header[1] == self.NextSeqNum:
@@ -142,6 +126,7 @@ class LFTP(object):
                 self.TimeStart = time.time()
                 self.duplicateAck = 1
                 logger.info('Sequence number:{0}'.format(self.NextSeqNum))
+                self.lock.release()
                 break
         self.lock.release()
 
@@ -172,47 +157,28 @@ class LFTP(object):
                                        self.serverAddress)
                     self.TimeStart = time.time()
                     self.SndBuffer[i][2] = True
+                elif self.SndBuffer[i][2] == False:
+                    break
             self.lock.release()
             if self.finished:
                 break
 
-    def calculateTimeoutInterval(self):
-        # 新建多个计时器
-        pass
 
+def parseParameter():
+    # Sending file should use the following format
+    #   LFTP lsend servername:serverport mylargefile
+    # Getting file should use the following format
+    #   LFTP lget servername:serverport mylargefile
+    serverName, serverPort = sys.argv[2].split(':')
+    serverAddress = (serverName, int(serverPort))
+    print(serverAddress)
+    filename = sys.argv[3]
+    print(filename)
+    logger.info('Command:{0} Address:{1} File:{2}'.format(
+        sys.argv[1], serverAddress, filename))
+    return sys.argv[1], serverAddress, filename
 
-# def establishConnection(serverAddress):
-#     clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-#     clientSocket.sendto(b'SYN', serverAddress)
-#     logger.info('Send SYN to {0}'.format(serverAddress))
-#     ready = select.select([clientSocket], [], [], 5)
-#     if ready[0]:
-#         print(clientSocket.recv(2048).decode())
-#     else:
-#         logger.error('SYN_SENT timeout')
-#     ready = select.select([clientSocket], [], [], 5)
-#     if ready[0]:
-#         print(clientSocket.recv(2048).decode())
-#     else:
-#         print('failed')
-#     # clientSocket.recvfrom(2048).decode()
-#     return clientSocket
-#     # ???
-
-# serverAddress = ()
-# clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-# modifiedMessage = clientSocket.recvfrom(2048)
-# print(modifiedMessage.decode())
-# clientSocket.close()
-
-# def sendToServer(message):
-#     clientSocket.sendto(message, serverAddress)
-
-# def establishConnection():
-#     # Send SYN
-#     clientSocket.sendtob'SYN_SENT'
 
 if __name__ == "__main__":
-    command, serverAddress, filename = parseParameter()
-    lftp = LFTP(command, serverAddress, filename)
+    client = LFTPClient(*parseParameter())
+    client.start()
