@@ -1,10 +1,11 @@
 # Programming UDP with the terminology and idea of TCP
 # Suppose the size of file is less than 4294967296 bytes
-# Suppose no duplicate filenames
+# Suppose file exists and filename is unique
 import socket
 import logging
 import json
 import threading
+import time
 
 # Initialize logger
 logging.basicConfig(
@@ -58,7 +59,8 @@ class LFTPServer(object):
                 i += 1
             # Determine whether duplicate
             if len(self.RcvBuffer) == 0 or i == len(
-                    self.RcvBuffer) or self.RcvBuffer[i][0] != seqNum:
+                    self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum
+                                        and seqNum >= self.NextSeqNum):
                 self.RcvBuffer.insert(i, (seqNum, data, sf))
                 # Cast out from self.RcvBuffer
                 i = 0
@@ -68,16 +70,8 @@ class LFTPServer(object):
                     # FIN
                     if self.RcvBuffer[i][2] == 2:
                         self.file.close()
-                        self.socket.sendto(
-                            toHeader(
-                                ackNum=self.NextSeqNum,
-                                ack=1,
-                                sf=2,
-                                rwnd=(113 - len(self.RcvBuffer)) * 536),
-                            self.clientAddress)
-                        self.socket.close()
-                        logger.info('Finished for {0}'.format(self.clientAddress))
-                        self.finished = True
+                        logger.info('Finished for {0}, wait to close connection'.format(self.clientAddress))
+                        self.asyncCloseConnection()
                     else:
                         self.file.write(self.RcvBuffer[i][1])
                     i += 1
@@ -88,9 +82,15 @@ class LFTPServer(object):
             toHeader(
                 ackNum=self.NextSeqNum,
                 ack=1,
-                sf=0,
                 rwnd=(113 - len(self.RcvBuffer)) * 536), self.clientAddress)
-
+    
+    def asyncCloseConnection(self):
+        def closeConnection():
+            time.sleep(30)
+            self.finished = True
+            self.socket.close()
+            logger.info('Closed')
+        threading.Thread(target=closeConnection).start()
 
 class ServerSocket(object):
     def __init__(self, serverPort):

@@ -1,6 +1,6 @@
 # Programming UDP with the terminology and idea of TCP
 # Suppose the size of file is less than 4294967296 bytes
-# Suppose no duplicate filenames
+# Suppose file exists and filename is unique
 import socket
 import sys
 import logging
@@ -75,7 +75,6 @@ class LFTPClient(object):
             # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 20 - 8 = 548
             # Here use 536 as same as TCP
             # Suppose capacity of self.SndBuffer is 65536 bytes, 65536 / 576 roughly 113 segments
-            # self.SndBuffer is small so the flow control effect is not significant
             if len(self.SndBuffer) < 113:
                 segment = self.file.read(536)
                 self.lock.acquire()
@@ -121,7 +120,7 @@ class LFTPClient(object):
             self.lock.release()
 
     def retransmission(self):
-        # self.lock.acquire()
+        self.lock.acquire() 
         for segment in self.SndBuffer:
             # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
@@ -130,7 +129,7 @@ class LFTPClient(object):
                 self.duplicateAck = 1
                 logger.info('Sequence number:{0}'.format(self.NextSeqNum))
                 break
-        # self.lock.release()
+        self.lock.release()
 
     def detectTimeout(self):
         while self.running:
@@ -158,6 +157,7 @@ class LFTPClient(object):
                 elif self.SndBuffer[i][2] == False:
                     break
             self.lock.release()
+        
 
 
 def parseParameter():
