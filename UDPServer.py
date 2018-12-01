@@ -70,7 +70,8 @@ class LFTPServer(object):
                     # FIN
                     if self.RcvBuffer[i][2] == 2:
                         self.file.close()
-                        logger.info('Finished for {0}, wait to close connection'.format(self.clientAddress))
+                        logger.info('File received, wait to close connection to {0}'.format(
+                            self.clientAddress))
                         self.asyncCloseConnection()
                     else:
                         self.file.write(self.RcvBuffer[i][1])
@@ -83,45 +84,39 @@ class LFTPServer(object):
                 ackNum=self.NextSeqNum,
                 ack=1,
                 rwnd=(113 - len(self.RcvBuffer)) * 536), self.clientAddress)
-    
+
     def asyncCloseConnection(self):
         def closeConnection():
             time.sleep(30)
-            self.finished = True
             self.socket.close()
-            logger.info('Closed')
+            logger.info('Close connection to {0}'.format(self.clientAddress))
+            self.finished = True
+
         threading.Thread(target=closeConnection).start()
+
 
 class ServerSocket(object):
     def __init__(self, serverPort):
         self.serverPort = serverPort
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.connections = {}  # {clientAddress: LFTPServer}
-        self.pool = [
-            threading.Thread(target=f)
-            for f in [self.requestConnection, self.castConnection]
-        ]
 
     def start(self):
         self.socket.bind(('', self.serverPort))
-        for t in self.pool:
-            t.start()
+        self.listen()
         logger.info('The server is listening at {0}'.format(self.serverPort))
 
-    def requestConnection(self):
+    def listen(self):
         while True:
             segment, clientAddress = self.socket.recvfrom(1024)
+            # Cast out from self.connections
+            for c in list(self.connections.items()):
+                if c[1].finished:
+                    del (self.connections[c[0]])
             if clientAddress not in self.connections:
                 logger.info('Accept connection from {0}'.format(clientAddress))
                 self.connections[clientAddress] = LFTPServer(clientAddress)
             self.connections[clientAddress].rcvSegment(segment)
-
-    def castConnection(self):
-        while True:
-            for c in list(self.connections.items()):
-                if c[1].finished:
-                    logger.info('Disconnect {0}'.format(c[0]))
-                    del (self.connections[c[0]])
 
 
 if __name__ == "__main__":

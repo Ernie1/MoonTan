@@ -95,15 +95,15 @@ class LFTPClient(object):
 
     def castSndBuffer(self):
         while self.running:
+            self.lock.acquire()
             if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
-                self.lock.acquire()
                 self.SndBuffer.pop(0)
                 if len(self.SndBuffer) == 0:
                     self.running = False
                     self.file.close()
                     self.socket.close()
                     logger.info('Finished')
-                self.lock.release()
+            self.lock.release()
 
     def rcvAckAndRwnd(self):
         while self.running:
@@ -120,7 +120,8 @@ class LFTPClient(object):
             self.lock.release()
 
     def retransmission(self):
-        self.lock.acquire() 
+        # self.lock.acquire() 
+        print(len(self.SndBuffer))
         for segment in self.SndBuffer:
             # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
@@ -129,19 +130,23 @@ class LFTPClient(object):
                 self.duplicateAck = 1
                 logger.info('Sequence number:{0}'.format(self.NextSeqNum))
                 break
-        self.lock.release()
+        # self.lock.release()
 
     def detectTimeout(self):
         while self.running:
+            self.lock.acquire() 
             if time.time() - self.TimeStart > self.TimeoutInterval:
                 logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
                 self.retransmission()
+            self.lock.release()
 
     def detectDuplicateAck(self):
         while self.running:
+            self.lock.acquire() 
             if self.duplicateAck > 2:
                 logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
                 self.retransmission()
+            self.lock.release()
 
     def slideWindow(self):
         while self.running:
