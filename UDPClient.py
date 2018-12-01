@@ -1,11 +1,11 @@
 # Programming UDP with the terminology and idea of TCP
-# 暂时不考虑超过 4294967296 bytes 的文件
+# Suppose the size of file is less than 4294967296 bytes
+# Suppose no duplicate filenames
 import socket
 import sys
 import logging
 import json
 import random
-import select
 import threading
 import time
 
@@ -17,7 +17,6 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 
-# 87380、16384
 class LFTPClient(object):
     def __init__(self, command, serverAddress, filename):
         self.finished = False
@@ -26,16 +25,17 @@ class LFTPClient(object):
         self.file = open(filename, 'rb')
         self.NextSeqNum = random.randint(1000, 10000)
         self.duplicateAck = 0
-        # Dual purpose
+        # self.rwnd doesn't contains the length of segment header for convenient
         self.rwnd = 0
         self.TimeoutInterval = 1
         self.TimeStart = time
         # SYN
-        self.SndBuffer = [(
-            self.NextSeqNum,
-            # '0' is placeholder
-            self.toHeader(seqNum=self.NextSeqNum, sf=1) + b'0',
-            False)]  # (SeqNum, Segment, Sent)
+        self.SndBuffer = [(self.NextSeqNum,
+                           self.toHeader(seqNum=self.NextSeqNum, sf=1) +
+                           json.dumps({
+                               'command': command,
+                               'filename': filename
+                           }).encode(), False)]  # [(SeqNum, Segment, Sent)]
         # Multithreading
         self.lock = threading.Lock()
         self.pool = [
@@ -48,6 +48,7 @@ class LFTPClient(object):
     def start(self):
         for t in self.pool:
             t.start()
+        logger.info('Start')
 
     def toHeader(self, seqNum=0, ackNum=0, ack=0, sf=0, rwnd=0):
         return seqNum.to_bytes(
@@ -67,17 +68,17 @@ class LFTPClient(object):
 
     def fillSndBuffer(self):
         while True:
-            # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 8 = 568
-            # But here use 536 as same as TCP
-            # Suppose capacity of SndBuffer is 16384 bytes, 16384 / 536 roughly 30 segments
-            # 这里可能有点小导致流控制作用不大
-            if len(self.SndBuffer) < 30:
+            # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 20 - 8 = 548
+            # Here use 536 as same as TCP
+            # Suppose capacity of self.SndBuffer is 16384 bytes, 16384 / 576 roughly 28 segments
+            # self.SndBuffer is small so the flow control effect is not significant
+            if len(self.SndBuffer) < 28:
                 segment = self.file.read(536)
                 self.lock.acquire()
                 seqNum = self.SndBuffer[-1][0] + len(
                     self.SndBuffer[-1][1]) - 12
                 if len(segment) == 0:
-                    # FIN
+                    # FIN, '0' is placeholder
                     self.SndBuffer.append(
                         (seqNum, self.toHeader(seqNum=seqNum, sf=2) + b'0',
                          False))
@@ -91,10 +92,11 @@ class LFTPClient(object):
 
     def castSndBuffer(self):
         while True:
-            if self.SndBuffer[0][0] != self.NextSeqNum:
+            if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
                 self.lock.acquire()
                 self.SndBuffer.pop(0)
                 if len(self.SndBuffer) == 0:
+                    self.file.close()
                     self.socket.close()
                     self.finished = True
                     logger.info('Finished')
@@ -105,15 +107,15 @@ class LFTPClient(object):
     def rcvAckAndRwnd(self):
         while True:
             segment = self.socket.recvfrom(1024)[0]
-            header = self.fromHeader(segment)
+            _, ackNum, _, _, rwnd = self.fromHeader(segment)
             self.lock.acquire()
-            if header[1] == self.NextSeqNum:
+            if ackNum == self.NextSeqNum:
                 self.duplicateAck += 1
             else:
-                self.NextSeqNum = header[1]
+                self.NextSeqNum = ackNum
                 self.duplicateAck = 1
             self.TimeStart = time.time()
-            self.rwnd = header[4]
+            self.rwnd = rwnd
             self.lock.release()
             if self.finished:
                 break
@@ -121,6 +123,7 @@ class LFTPClient(object):
     def retransmission(self):
         self.lock.acquire()
         for segment in self.SndBuffer:
+            # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
                 self.socket.sendto(segment[1], self.serverAddress)
                 self.TimeStart = time.time()
