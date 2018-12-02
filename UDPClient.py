@@ -139,7 +139,6 @@ class LFTPClient(object):
 
     def retransmission(self):
         for segment in self.SndBuffer:
-            # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
                 self.socket.sendto(segment[1], self.serverAddress)
                 self.TimeStart = time.time()
