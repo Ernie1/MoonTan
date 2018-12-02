@@ -8,6 +8,7 @@ import json
 import random
 import threading
 import time
+import os
 
 # Initialize logger
 logging.basicConfig(
@@ -24,7 +25,7 @@ class LFTPClient(object):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.serverAddress = serverAddress
         self.file = open(filename, 'rb')
-        self.fileSize = sys.getsizeof(filename)
+        self.fileSize = os.path.getsize(filename)
         self.MSS = MSS
         # Suppose capacity of self.SndBuffer is 65536 bytes, roughly floor( 65536 / self.MSS ) segments
         self.SndBufferCapacity = int(65536 / self.MSS)
@@ -51,8 +52,8 @@ class LFTPClient(object):
         self.lock = threading.Lock()
         self.pool = [
             threading.Thread(target=f) for f in [
-                self.fillSndBuffer, self.castSndBuffer, self.rcvAckAndRwnd,
-                self.detectTimeout, self.detectDuplicateAck, self.slideWindow
+                self.fillSndBuffer, self.rcvAckAndRwnd, self.detectTimeout,
+                self.slideWindow
             ]
         ]
 
@@ -80,9 +81,9 @@ class LFTPClient(object):
 
     def fillSndBuffer(self):
         while self.running:
+            self.lock.acquire()
             if len(self.SndBuffer) < self.SndBufferCapacity:
                 segment = self.file.read(self.MSS)
-                self.lock.acquire()
                 # logger.info('')
                 if len(segment) == 0:
                     self.file.close()
@@ -92,6 +93,7 @@ class LFTPClient(object):
                         self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
                         False
                     ])
+                    # print(self.fromHeader(self.SndBuffer[-1][1]))
                     self.lock.release()
                     break
                 self.SndBuffer.append([
@@ -99,22 +101,7 @@ class LFTPClient(object):
                     self.toHeader(seqNum=self.NextByteFill) + segment, False
                 ])
                 self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
-                self.lock.release()
-
-    def castSndBuffer(self):
-        pass
-
-    #     while self.running:
-    #         self.lock.acquire()
-    #         # logger.info('')
-    #         if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
-    #             self.SndBuffer.pop(0)
-    #             if len(self.SndBuffer) == 0:
-    #                 self.running = False
-    #                 self.file.close()
-    #                 self.socket.close()
-    #                 logger.info('Finished')
-    #         self.lock.release()
+            self.lock.release()
 
     def rcvAckAndRwnd(self):
         while self.running:
@@ -136,20 +123,20 @@ class LFTPClient(object):
                 progress = self.progress
                 while (
                         self.NextSeqNum - self.initSeqNum
-                ) / self.fileSize >= self.progress * 0.05 and self.progress <= 20:
+                ) / self.fileSize >= self.progress * 0.05:
                     self.progress += 1
                 if progress < self.progress:
                     logger.info('Sent {0}%'.format((self.progress - 1) * 5))
                 # Cast out from self.SndBuffer
                 while len(self.SndBuffer
                           ) and self.SndBuffer[0][0] < self.NextSeqNum:
-                    self.SndBuffer.pop(0)
-                    if len(self.SndBuffer) == 0:
+                    s = self.SndBuffer.pop(0)
+                    # Determine whether last cast out is FIN
+                    if len(self.SndBuffer) == 0 and self.fromHeader(s[1])[3] == 2:
                         self.running = False
                         self.socket.close()
                         logger.info('Finished')
             self.rwnd = rwnd
-            # ???
             self.TimeStart = time.time()
             self.lock.release()
 
@@ -173,16 +160,6 @@ class LFTPClient(object):
                 self.retransmission()
             self.lock.release()
 
-    def detectDuplicateAck(self):
-        pass
-        # while self.running:
-        #     self.lock.acquire()
-        #     # logger.info('')
-        #     if self.duplicateAck > 2:
-        #         logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
-        #         self.retransmission()
-        #     self.lock.release()
-
     def slideWindow(self):
         while self.running:
             self.lock.acquire()
@@ -193,6 +170,7 @@ class LFTPClient(object):
                         0] - self.NextSeqNum <= self.rwnd:
                     self.socket.sendto(self.SndBuffer[i][1],
                                        self.serverAddress)
+                    # print(self.SndBuffer[i][0],self.fromHeader(self.SndBuffer[i][1])[3])
                     self.TimeStart = time.time()
                     self.SndBuffer[i][2] = True
                 elif self.SndBuffer[i][2] == False:

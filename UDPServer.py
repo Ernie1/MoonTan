@@ -88,6 +88,7 @@ class LFTPServer(object):
                 ack=1,
                 rwnd=(self.RcvBufferCapacity - len(self.RcvBuffer)) *
                 self.MSS), self.clientAddress)
+        # print(self.NextSeqNum)
 
     def asyncCloseConnection(self):
         def closeConnection():
