@@ -207,9 +207,7 @@ def parseParameter():
     #   LFTP lget servername:serverport mylargefile
     serverName, serverPort = sys.argv[2].split(':')
     serverAddress = (serverName, int(serverPort))
-    print(serverAddress)
     filename = sys.argv[3]
-    print(filename)
     logger.info('Command:{0} Address:{1} File:{2}'.format(
         sys.argv[1], serverAddress, filename))
     return sys.argv[1], serverAddress, filename
