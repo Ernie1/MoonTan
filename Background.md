@@ -1,5 +1,3 @@
-
-
 # Background
 ## Reliable Data Transfer
 - **MSS (maximum segment size)** is the maximum amount of application-layer data in the segment.
@@ -73,19 +71,21 @@
 ```LastByteSent – LastByteAcked ≦ rwnd```
 - When receiver's receive buffer becomes full so that rwnd = 0, to avoid sender being blocked, it requires sender to continue to send segments with one data byte. These segments will be acknowledged by the receiver. Eventually the buffer will begin to empty and the acknowledgments will contain a nonzero rwnd value.
 ## Connection Management
-- Client:  
-![](https://images2015.cnblogs.com/blog/1094457/201702/1094457-20170216174614160-553368636.png)
-- Server:  
-![](https://images2015.cnblogs.com/blog/1094457/201702/1094457-20170216174657550-208459039.png)
+- TCP three-way handshake: segment exchange:  
+![](https://rjgeek.github.io/images/2016/11/tcp_12.png?t=1%3E)
+- Closing a TCP connection:   
+![](https://rjgeek.github.io/images/2016/11/tcp_13.png?t=1%3E)
+## Our Adapted Connection Close
+![](our_adapted_connection_close.svg)
 ## Congestion Control
 - Sender keeps track of an variable, the **congestion window**, denoted **cwnd**, imposes a constraint on the rate at which a TCP sender can send traffic into the network, roughly **cwnd/RTT bytes/sec**.
 - FSM description of congestion control:  
 ![](https://i.stack.imgur.com/cJDMC.png)
-## The client-server application using TCP
+## The Client-Server Application using TCP
 ![](https://4.bp.blogspot.com/-DvRMFAAWUI8/Vk4EqPpbEvI/AAAAAAAAOWA/RBrpMgP3B50/s640/TCP.PNG)
-## TCP segment structure
+## TCP Segment Structure
 ![](https://rjgeek.github.io/images/2016/11/tcp_1.png?t=2%3E)
-## Our header structure
+## Our Adapted Header Structure
 <table>
    <tr>
       <td align="center" colspan="4">32 bits</td>
