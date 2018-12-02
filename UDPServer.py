@@ -35,10 +35,13 @@ def fromHeader(segment):
 
 
 class LFTPServer(object):
-    def __init__(self, clientAddress):
+    def __init__(self, clientAddress, MSS):
         self.finished = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.clientAddress = clientAddress
+        self.MSS = MSS
+        # Suppose capacity of self.RcvBuffer is 65536 bytes, roughly floor( 65536 / self.MSS ) segments
+        self.RcvBufferCapacity = int(65536 / self.MSS)
         # self.rwnd doesn't contains the length of segment header for convenient
         self.rwnd = 0
         self.RcvBuffer = []  # [(SeqNum, Data, sf)]
@@ -70,20 +73,21 @@ class LFTPServer(object):
                     # FIN
                     if self.RcvBuffer[i][2] == 2:
                         self.file.close()
-                        logger.info('File received, wait to close connection to {0}'.format(
-                            self.clientAddress))
+                        logger.info(
+                            'File received, wait to close connection to {0}'.
+                            format(self.clientAddress))
                         self.asyncCloseConnection()
                     else:
                         self.file.write(self.RcvBuffer[i][1])
                     i += 1
                 self.RcvBuffer = self.RcvBuffer[i:]
         # ACK
-        # Suppose capacity of self.RcvBuffer is 65536 bytes, 65536 / 576 roughly 113 segments
         self.socket.sendto(
             toHeader(
                 ackNum=self.NextSeqNum,
                 ack=1,
-                rwnd=(113 - len(self.RcvBuffer)) * 536), self.clientAddress)
+                rwnd=(self.RcvBufferCapacity - len(self.RcvBuffer)) *
+                self.MSS), self.clientAddress)
 
     def asyncCloseConnection(self):
         def closeConnection():
@@ -96,29 +100,31 @@ class LFTPServer(object):
 
 
 class ServerSocket(object):
-    def __init__(self, serverPort):
+    def __init__(self, serverPort, MSS):
         self.serverPort = serverPort
+        self.MSS = MSS
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.connections = {}  # {clientAddress: LFTPServer}
 
     def start(self):
         self.socket.bind(('', self.serverPort))
-        self.listen()
         logger.info('The server is listening at {0}'.format(self.serverPort))
+        threading.Thread(target=self.listen).start()
 
     def listen(self):
         while True:
-            segment, clientAddress = self.socket.recvfrom(1024)
+            segment, clientAddress = self.socket.recvfrom(self.MSS + 12)
             # Cast out from self.connections
             for c in list(self.connections.items()):
                 if c[1].finished:
                     del (self.connections[c[0]])
             if clientAddress not in self.connections:
                 logger.info('Accept connection from {0}'.format(clientAddress))
-                self.connections[clientAddress] = LFTPServer(clientAddress)
+                self.connections[clientAddress] = LFTPServer(
+                    clientAddress, self.MSS)
             self.connections[clientAddress].rcvSegment(segment)
 
 
 if __name__ == "__main__":
-    server = ServerSocket(12000)
+    server = ServerSocket(12000, 5360)
     server.start()

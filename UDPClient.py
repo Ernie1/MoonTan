@@ -19,12 +19,19 @@ logger = logging.getLogger()
 
 
 class LFTPClient(object):
-    def __init__(self, command, serverAddress, filename):
+    def __init__(self, command, serverAddress, filename, MSS):
         self.running = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.serverAddress = serverAddress
         self.file = open(filename, 'rb')
-        self.NextSeqNum = random.randint(1000, 10000)
+        self.fileSize = sys.getsizeof(filename)
+        self.MSS = MSS
+        # Suppose capacity of self.SndBuffer is 65536 bytes, roughly floor( 65536 / self.MSS ) segments
+        self.SndBufferCapacity = int(65536 / self.MSS)
+        self.initSeqNum = random.randint(1000, 10000)
+        self.NextSeqNum = self.initSeqNum
+        self.NextByteFill = self.initSeqNum
+        self.progress = 1
         self.duplicateAck = 0
         # self.rwnd doesn't contains the length of segment header for convenient
         self.rwnd = 0
@@ -32,13 +39,14 @@ class LFTPClient(object):
         self.TimeStart = time.time()
         # SYN
         self.SndBuffer = [[
-            self.NextSeqNum,
+            self.NextByteFill,
             self.toHeader(seqNum=self.NextSeqNum, sf=1) + json.dumps(
                 {
                     'command': command,
                     'filename': filename
                 }).encode(), False
         ]]  # [[SeqNum, Segment, Sent]]
+        self.NextByteFill += len(self.SndBuffer[0][1]) - 12
         # Multithreading
         self.lock = threading.Lock()
         self.pool = [
@@ -72,56 +80,80 @@ class LFTPClient(object):
 
     def fillSndBuffer(self):
         while self.running:
-            # Suppose MTU is 576, length of UDP header is 8, then MSS is 576 - 20 - 8 = 548
-            # Here use 536 as same as TCP
-            # Suppose capacity of self.SndBuffer is 65536 bytes, 65536 / 576 roughly 113 segments
-            if len(self.SndBuffer) < 113:
-                segment = self.file.read(536)
+            if len(self.SndBuffer) < self.SndBufferCapacity:
+                segment = self.file.read(self.MSS)
                 self.lock.acquire()
-                seqNum = self.SndBuffer[-1][0] + len(
-                    self.SndBuffer[-1][1]) - 12
+                # logger.info('')
                 if len(segment) == 0:
+                    self.file.close()
                     # FIN, '0' is placeholder
                     self.SndBuffer.append([
-                        seqNum,
-                        self.toHeader(seqNum=seqNum, sf=2) + b'0', False
+                        self.NextByteFill,
+                        self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
+                        False
                     ])
                     self.lock.release()
                     break
-                self.SndBuffer.append(
-                    [seqNum,
-                     self.toHeader(seqNum=seqNum) + segment, False])
+                self.SndBuffer.append([
+                    self.NextByteFill,
+                    self.toHeader(seqNum=self.NextByteFill) + segment, False
+                ])
+                self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
                 self.lock.release()
 
     def castSndBuffer(self):
-        while self.running:
-            self.lock.acquire()
-            if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
-                self.SndBuffer.pop(0)
-                if len(self.SndBuffer) == 0:
-                    self.running = False
-                    self.file.close()
-                    self.socket.close()
-                    logger.info('Finished')
-            self.lock.release()
+        pass
+
+    #     while self.running:
+    #         self.lock.acquire()
+    #         # logger.info('')
+    #         if len(self.SndBuffer) and self.SndBuffer[0][0] != self.NextSeqNum:
+    #             self.SndBuffer.pop(0)
+    #             if len(self.SndBuffer) == 0:
+    #                 self.running = False
+    #                 self.file.close()
+    #                 self.socket.close()
+    #                 logger.info('Finished')
+    #         self.lock.release()
 
     def rcvAckAndRwnd(self):
         while self.running:
+            segment = self.socket.recvfrom(self.MSS + 12)[0]
             self.lock.acquire()
-            segment = self.socket.recvfrom(1024)[0]
+            # logger.info('')
             _, ackNum, _, _, rwnd = self.fromHeader(segment)
             if ackNum == self.NextSeqNum:
                 self.duplicateAck += 1
-            else:
+                # Detect duplicate ack
+                if self.duplicateAck > 2:
+                    logger.warning('Duplicate ack sequence number:{0}'.format(
+                        self.NextSeqNum))
+                    self.retransmission()
+            elif ackNum > self.NextSeqNum:
                 self.NextSeqNum = ackNum
                 self.duplicateAck = 1
-            self.TimeStart = time.time()
+                # Show progress
+                progress = self.progress
+                while (
+                        self.NextSeqNum - self.initSeqNum
+                ) / self.fileSize >= self.progress * 0.05 and self.progress <= 20:
+                    self.progress += 1
+                if progress < self.progress:
+                    logger.info('Sent {0}%'.format((self.progress - 1) * 5))
+                # Cast out from self.SndBuffer
+                while len(self.SndBuffer
+                          ) and self.SndBuffer[0][0] < self.NextSeqNum:
+                    self.SndBuffer.pop(0)
+                    if len(self.SndBuffer) == 0:
+                        self.running = False
+                        self.socket.close()
+                        logger.info('Finished')
             self.rwnd = rwnd
+            # ???
+            self.TimeStart = time.time()
             self.lock.release()
 
     def retransmission(self):
-        # self.lock.acquire() 
-        print(len(self.SndBuffer))
         for segment in self.SndBuffer:
             # With the help of self.castSndBuffer, it should be self.SndBuffer[0]
             if segment[0] == self.NextSeqNum:
@@ -130,27 +162,31 @@ class LFTPClient(object):
                 self.duplicateAck = 1
                 logger.info('Sequence number:{0}'.format(self.NextSeqNum))
                 break
-        # self.lock.release()
 
     def detectTimeout(self):
         while self.running:
-            self.lock.acquire() 
+            self.lock.acquire()
+            # logger.info('')
             if time.time() - self.TimeStart > self.TimeoutInterval:
-                logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
+                logger.warning('Sequence number:{0}, {1}'.format(
+                    self.NextSeqNum, len(self.SndBuffer)))
                 self.retransmission()
             self.lock.release()
 
     def detectDuplicateAck(self):
-        while self.running:
-            self.lock.acquire() 
-            if self.duplicateAck > 2:
-                logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
-                self.retransmission()
-            self.lock.release()
+        pass
+        # while self.running:
+        #     self.lock.acquire()
+        #     # logger.info('')
+        #     if self.duplicateAck > 2:
+        #         logger.warning('Sequence number:{0}'.format(self.NextSeqNum))
+        #         self.retransmission()
+        #     self.lock.release()
 
     def slideWindow(self):
         while self.running:
             self.lock.acquire()
+            # logger.info('')
             for i in range(len(self.SndBuffer)):
                 # Flow control
                 if self.SndBuffer[i][2] == False and self.SndBuffer[i][
@@ -162,7 +198,6 @@ class LFTPClient(object):
                 elif self.SndBuffer[i][2] == False:
                     break
             self.lock.release()
-        
 
 
 def parseParameter():
@@ -181,5 +216,5 @@ def parseParameter():
 
 
 if __name__ == "__main__":
-    client = LFTPClient(*parseParameter())
+    client = LFTPClient(*parseParameter(), 5360)
     client.start()
