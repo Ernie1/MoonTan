@@ -84,7 +84,6 @@ class LFTPClient(object):
             self.lock.acquire()
             if len(self.SndBuffer) < self.SndBufferCapacity:
                 segment = self.file.read(self.MSS)
-                # logger.info('')
                 if len(segment) == 0:
                     self.file.close()
                     # FIN, '0' is placeholder
@@ -93,7 +92,6 @@ class LFTPClient(object):
                         self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
                         False
                     ])
-                    # print(self.fromHeader(self.SndBuffer[-1][1]))
                     self.lock.release()
                     break
                 self.SndBuffer.append([
@@ -107,7 +105,6 @@ class LFTPClient(object):
         while self.running:
             segment = self.socket.recvfrom(self.MSS + 12)[0]
             self.lock.acquire()
-            # logger.info('')
             _, ackNum, _, _, rwnd = self.fromHeader(segment)
             if ackNum == self.NextSeqNum:
                 self.duplicateAck += 1
@@ -153,7 +150,6 @@ class LFTPClient(object):
     def detectTimeout(self):
         while self.running:
             self.lock.acquire()
-            # logger.info('')
             if time.time() - self.TimeStart > self.TimeoutInterval:
                 logger.warning('Sequence number:{0}, {1}'.format(
                     self.NextSeqNum, len(self.SndBuffer)))
@@ -163,14 +159,12 @@ class LFTPClient(object):
     def slideWindow(self):
         while self.running:
             self.lock.acquire()
-            # logger.info('')
             for i in range(len(self.SndBuffer)):
                 # Flow control
                 if self.SndBuffer[i][2] == False and self.SndBuffer[i][
                         0] - self.NextSeqNum <= self.rwnd:
                     self.socket.sendto(self.SndBuffer[i][1],
                                        self.serverAddress)
-                    # print(self.SndBuffer[i][0],self.fromHeader(self.SndBuffer[i][1])[3])
                     self.TimeStart = time.time()
                     self.SndBuffer[i][2] = True
                 elif self.SndBuffer[i][2] == False:
