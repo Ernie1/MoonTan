@@ -1,10 +1,11 @@
 # Programming UDP with the terminology and idea of TCP
 # Suppose the size of file is less than 4294967296 bytes
-# Suppose no duplicate filenames
+# Suppose file exists and filename is unique
 import socket
 import logging
 import json
 import threading
+import time
 
 # Initialize logger
 logging.basicConfig(
@@ -34,10 +35,13 @@ def fromHeader(segment):
 
 
 class LFTPServer(object):
-    def __init__(self, clientAddress):
+    def __init__(self, clientAddress, MSS):
         self.finished = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.clientAddress = clientAddress
+        self.MSS = MSS
+        # Suppose capacity of self.RcvBuffer is 65536 bytes, roughly floor( 65536 / self.MSS ) segments
+        self.RcvBufferCapacity = int(65536 / self.MSS)
         # self.rwnd doesn't contains the length of segment header for convenient
         self.rwnd = 0
         self.RcvBuffer = []  # [(SeqNum, Data, sf)]
@@ -58,7 +62,8 @@ class LFTPServer(object):
                 i += 1
             # Determine whether duplicate
             if len(self.RcvBuffer) == 0 or i == len(
-                    self.RcvBuffer) or self.RcvBuffer[i][0] != seqNum:
+                    self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum
+                                        and seqNum >= self.NextSeqNum):
                 self.RcvBuffer.insert(i, (seqNum, data, sf))
                 # Cast out from self.RcvBuffer
                 i = 0
@@ -68,62 +73,58 @@ class LFTPServer(object):
                     # FIN
                     if self.RcvBuffer[i][2] == 2:
                         self.file.close()
-                        self.socket.sendto(
-                            toHeader(
-                                ackNum=self.NextSeqNum,
-                                ack=1,
-                                sf=2,
-                                rwnd=(113 - len(self.RcvBuffer)) * 536),
-                            self.clientAddress)
-                        self.socket.close()
-                        logger.info('Finished for {0}'.format(self.clientAddress))
-                        self.finished = True
+                        logger.info(
+                            'File received, wait to close connection to {0}'.
+                            format(self.clientAddress))
+                        self.asyncCloseConnection()
                     else:
                         self.file.write(self.RcvBuffer[i][1])
                     i += 1
                 self.RcvBuffer = self.RcvBuffer[i:]
         # ACK
-        # Suppose capacity of self.RcvBuffer is 65536 bytes, 65536 / 576 roughly 113 segments
         self.socket.sendto(
             toHeader(
                 ackNum=self.NextSeqNum,
                 ack=1,
-                sf=0,
-                rwnd=(113 - len(self.RcvBuffer)) * 536), self.clientAddress)
+                rwnd=(self.RcvBufferCapacity - len(self.RcvBuffer)) *
+                self.MSS), self.clientAddress)
+
+    def asyncCloseConnection(self):
+        def closeConnection():
+            time.sleep(30)
+            self.socket.close()
+            logger.info('Close connection to {0}'.format(self.clientAddress))
+            self.finished = True
+
+        threading.Thread(target=closeConnection).start()
 
 
 class ServerSocket(object):
-    def __init__(self, serverPort):
+    def __init__(self, serverPort, MSS):
         self.serverPort = serverPort
+        self.MSS = MSS
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.connections = {}  # {clientAddress: LFTPServer}
-        self.pool = [
-            threading.Thread(target=f)
-            for f in [self.requestConnection, self.castConnection]
-        ]
 
     def start(self):
         self.socket.bind(('', self.serverPort))
-        for t in self.pool:
-            t.start()
         logger.info('The server is listening at {0}'.format(self.serverPort))
+        threading.Thread(target=self.listen).start()
 
-    def requestConnection(self):
+    def listen(self):
         while True:
-            segment, clientAddress = self.socket.recvfrom(1024)
-            if clientAddress not in self.connections:
-                logger.info('Accept connection from {0}'.format(clientAddress))
-                self.connections[clientAddress] = LFTPServer(clientAddress)
-            self.connections[clientAddress].rcvSegment(segment)
-
-    def castConnection(self):
-        while True:
+            segment, clientAddress = self.socket.recvfrom(self.MSS + 12)
+            # Cast out from self.connections
             for c in list(self.connections.items()):
                 if c[1].finished:
-                    logger.info('Disconnect {0}'.format(c[0]))
                     del (self.connections[c[0]])
+            if clientAddress not in self.connections:
+                logger.info('Accept connection from {0}'.format(clientAddress))
+                self.connections[clientAddress] = LFTPServer(
+                    clientAddress, self.MSS)
+            self.connections[clientAddress].rcvSegment(segment)
 
 
 if __name__ == "__main__":
-    server = ServerSocket(12000)
+    server = ServerSocket(12000, 5360)
     server.start()
