@@ -7,6 +7,15 @@ import os
 import sys
 import UDPServer
 import UDPClient
+import logging
+
+# Initialize logger
+logging.basicConfig(
+	format=
+	'%(asctime)s,%(msecs)03d - %(levelname)s - %(funcName)s - %(message)s',
+	datefmt='%Y-%m-%d %H:%M:%S',
+	level=logging.NOTSET)
+logger = logging.getLogger()
 
 ROOT_DIR = sys.path[0] + "/Test/Server/"
 LISTEN_PORT = 16666
@@ -16,7 +25,8 @@ def userConnection(clientAddr, serverPort):
 	# Establish new port
 	serverSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 	serverSocket.bind(('127.0.0.1', serverPort))
-	print("New thread for :", clientAddr, "at", serverPort)
+	s= " "
+	logger.info("Start a new thread for : " + str(clientAddr) + " at port " + str(serverPort))
 
 	# Send new port num
 	serverSocket.sendto(bytearray(str(serverPort), "utf-8"), clientAddr)
@@ -24,7 +34,7 @@ def userConnection(clientAddr, serverPort):
 	# Get command
 	clientCommand, clientAddr = serverSocket.recvfrom(1024)
 	clientCommand = clientCommand.decode('utf-8')
-	print("Command :", clientCommand)
+	logger.info("Received client command is " + clientCommand)
 	serverSocket.sendto(bytearray("Got command", "utf-8"), clientAddr)
 
 	# Get file name

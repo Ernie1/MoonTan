@@ -40,7 +40,7 @@ class LFTPClient(object):
 		# self.rwnd doesn't contains the length of segment header for convenient
 		self.rwnd = 0
 		self.TimeoutInterval = 1.0
-		# ZYD set varibles
+		# ZYD sets variables
 		self.EstimatedRTT = 1.0
 		self.DevRTT = 0
 		self.congestionStatus = "slow start"
@@ -55,10 +55,12 @@ class LFTPClient(object):
 				{
 					'command': command,
 					'filename': filename
-				}).encode(), False
-		]]  # [[SeqNum, Segment, Sent]]
+				}).encode(),
+			False,
+			5
+		]]  # [[SeqNum, Segment, Sent, Start Time]]
 		self.NextByteFill += len(self.SndBuffer[0][1]) - 12
-		# Multithreading
+		# Multi-threading
 		self.lock = threading.Lock()
 		self.pool = [
 			threading.Thread(target=f) for f in [
@@ -100,17 +102,19 @@ class LFTPClient(object):
 					self.SndBuffer.append([
 						self.NextByteFill,
 						self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
-						False
+						False,
+						time.time()
 					])
 					self.lock.release()
 					break
 				self.SndBuffer.append([
 					self.NextByteFill,
-					self.toHeader(seqNum=self.NextByteFill) + segment, False
+					self.toHeader(seqNum=self.NextByteFill) + segment, False, time.time()
 				])
 				self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
 			self.lock.release()
 
+	# CONGESTION CONTROL, according to graph
 	def switchCongestionStatus(self, event):
 		oldStatus = self.congestionStatus
 		if event == "new ack":
@@ -166,7 +170,7 @@ class LFTPClient(object):
 		if self.cwnd >= self.ssthresh:
 			self.congestionStatus = "congestion avoidance"
 		if oldStatus != self.congestionStatus:
-			logging.info("Switch from "+oldStatus+" to "+self.congestionStatus)
+			logging.info(event + " happened. Switch from "+oldStatus+" to "+self.congestionStatus)
 
 
 	def rcvAckAndRwnd(self):
@@ -198,8 +202,7 @@ class LFTPClient(object):
 					logger.info('Sent {0}%'.format((self.progress - 1) * 5))
 					logger.info('EstimatedRTT={0} DevRTT={1} TimeoutInterval={2}'.format(self.EstimatedRTT, self.DevRTT, self.TimeoutInterval))
 				# Cast out from self.SndBuffer
-				while len(self.SndBuffer
-						  ) and self.SndBuffer[0][0] < self.NextSeqNum:
+				while len(self.SndBuffer) and self.SndBuffer[0][0] < self.NextSeqNum:
 					# ZYD : get updateTimeoutInterval
 					self.updateTimeoutInterval(self.SndBuffer[0][3])
 					s = self.SndBuffer.pop(0)
@@ -237,7 +240,7 @@ class LFTPClient(object):
 			if time.time() - self.TimeStart > self.TimeoutInterval:
 				# ZYD : update here for congestion control
 				# logger.warning('Sequence number:{0}, {1}'.format(
-				# 	self.NextSeqNum, len(self.SndBuffer)))
+				# self.NextSeqNum, len(self.SndBuffer)))
 				# self.retransmission()
 				self.switchCongestionStatus("time out")
 			self.lock.release()
@@ -250,7 +253,7 @@ class LFTPClient(object):
 				if self.SndBuffer[i][2] == False and self.SndBuffer[i][
 						0] - self.NextSeqNum <= min(self.rwnd, self.cwnd):
 					# ZYD : package timer start
-					self.SndBuffer[i].append(time.time())
+					self.SndBuffer[i][3] = time.time()
 					self.socket.sendto(self.SndBuffer[i][1],
 									   self.serverAddress)
 					self.TimeStart = time.time()
