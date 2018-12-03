@@ -40,7 +40,7 @@ class LFTPClient(object):
 		# self.rwnd doesn't contains the length of segment header for convenient
 		self.rwnd = 0
 		self.TimeoutInterval = 1.0
-		# ZYD set varibles
+		# ZYD sets variables
 		self.EstimatedRTT = 1.0
 		self.DevRTT = 0
 		self.congestionStatus = "slow start"
@@ -55,10 +55,12 @@ class LFTPClient(object):
 				{
 					'command': command,
 					'filename': filename
-				}).encode(), False
-		]]  # [[SeqNum, Segment, Sent]]
+				}).encode(),
+			False,
+			5
+		]]  # [[SeqNum, Segment, Sent, Start Time]]
 		self.NextByteFill += len(self.SndBuffer[0][1]) - 12
-		# Multithreading
+		# Multi-threading
 		self.lock = threading.Lock()
 		self.pool = [
 			threading.Thread(target=f) for f in [
@@ -101,16 +103,19 @@ class LFTPClient(object):
 						self.NextByteFill,
 						self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
 						False
+						# debugging , time.time()
 					])
 					self.lock.release()
 					break
 				self.SndBuffer.append([
 					self.NextByteFill,
-					self.toHeader(seqNum=self.NextByteFill) + segment, False
+					self.toHeader(seqNum=self.NextByteFill) + segment, False,
+					time.time()
 				])
 				self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
 			self.lock.release()
 
+	# CONGESTION CONTROL, according to graph
 	def switchCongestionStatus(self, event):
 		oldStatus = self.congestionStatus
 		if event == "new ack":
@@ -120,7 +125,7 @@ class LFTPClient(object):
 			elif self.congestionStatus == "congestion avoidance":
 				self.cwnd += self.MSS*(self.MSS/self.cwnd)
 			elif self.congestionStatus == "fast recovery":
-				self.cwnd = ssthresh
+				self.cwnd = self.ssthresh
 				self.congestionStatus = "congestion avoidance"
 			else:
 				logger.info('congestionStatus error')
@@ -147,13 +152,13 @@ class LFTPClient(object):
 			if self.duplicateAck == 3:
 				self.retransmission()
 				if self.congestionStatus == "slow start":
-					self.ssthresh = cwnd/2
-					self.cwnd = ssthresh+3
+					self.ssthresh = self.cwnd/2
+					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
 				elif self.congestionStatus == "congestion avoidance":
 					print("duplicate ack")
-					self.ssthresh = cwnd/2
-					self.cwnd = ssthresh+3
+					self.ssthresh = self.cwnd/2
+					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
 				elif self.congestionStatus == "fast recovery":
 					pass
@@ -166,7 +171,7 @@ class LFTPClient(object):
 		if self.cwnd >= self.ssthresh:
 			self.congestionStatus = "congestion avoidance"
 		if oldStatus != self.congestionStatus:
-			logging.info("Switch from "+oldStatus+" to "+self.congestionStatus)
+			logging.info(event + " happened. Switch from "+oldStatus+" to "+self.congestionStatus)
 
 
 	def rcvAckAndRwnd(self):
@@ -190,16 +195,13 @@ class LFTPClient(object):
 				self.switchCongestionStatus("new ack")
 				# Show progress
 				progress = self.progress
-				while (
-						self.NextSeqNum - self.initSeqNum
-				) / self.fileSize >= self.progress * 0.05:
+				while (	self.NextSeqNum - self.initSeqNum) / self.fileSize >= self.progress * 0.05:
 					self.progress += 1
 				if progress < self.progress:
 					logger.info('Sent {0}%'.format((self.progress - 1) * 5))
 					logger.info('EstimatedRTT={0} DevRTT={1} TimeoutInterval={2}'.format(self.EstimatedRTT, self.DevRTT, self.TimeoutInterval))
 				# Cast out from self.SndBuffer
-				while len(self.SndBuffer
-						  ) and self.SndBuffer[0][0] < self.NextSeqNum:
+				while len(self.SndBuffer) and self.SndBuffer[0][0] < self.NextSeqNum:
 					# ZYD : get updateTimeoutInterval
 					self.updateTimeoutInterval(self.SndBuffer[0][3])
 					s = self.SndBuffer.pop(0)
@@ -237,7 +239,7 @@ class LFTPClient(object):
 			if time.time() - self.TimeStart > self.TimeoutInterval:
 				# ZYD : update here for congestion control
 				# logger.warning('Sequence number:{0}, {1}'.format(
-				# 	self.NextSeqNum, len(self.SndBuffer)))
+				# self.NextSeqNum, len(self.SndBuffer)))
 				# self.retransmission()
 				self.switchCongestionStatus("time out")
 			self.lock.release()

@@ -120,3 +120,7 @@ house/
 test.py
 *.zip
 .idea/
+ac/
+MoonTan/
+*.pdf
+Test/
