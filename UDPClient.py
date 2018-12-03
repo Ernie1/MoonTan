@@ -68,6 +68,7 @@ class LFTPClient(object):
 				self.slideWindow
 			]
 		]
+		self.first = True
 
 	def start(self):
 		self.running = True
@@ -91,9 +92,20 @@ class LFTPClient(object):
 						segment[9:10], byteorder="little"), int.from_bytes(
 							segment[10:12], byteorder="little")
 
+	# read buffer from the file continually
 	def fillSndBuffer(self):
 		while self.running:
 			self.lock.acquire()
+			if self.first == True:
+				print (" self.first == True");
+				self.SndBuffer.append([
+					self.NextByteFill,
+					self.toHeader(seqNum=self.NextByteFill) + json.dumps(self.fileSize).encode(),
+					False,
+					time.time()
+				])
+				self.first = False
+				self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
 			if len(self.SndBuffer) < self.SndBufferCapacity:
 				segment = self.file.read(self.MSS)
 				if len(segment) == 0:
@@ -177,6 +189,7 @@ class LFTPClient(object):
 	def rcvAckAndRwnd(self):
 		while self.running:
 			segment = self.socket.recvfrom(self.MSS + 12)[0]
+			# logger.info("receive")
 			self.lock.acquire()
 			_, ackNum, _, _, rwnd = self.fromHeader(segment)
 			if ackNum == self.NextSeqNum:
@@ -253,6 +266,7 @@ class LFTPClient(object):
 						0] - self.NextSeqNum <= min(self.rwnd, self.cwnd):
 					# ZYD : package timer start
 					self.SndBuffer[i].append(time.time())
+					# logger.info("发送数据包" + str( len(self.SndBuffer[i][1])) )
 					self.socket.sendto(self.SndBuffer[i][1],
 									   self.serverAddress)
 					self.TimeStart = time.time()
