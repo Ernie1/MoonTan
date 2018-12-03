@@ -102,14 +102,15 @@ class LFTPClient(object):
 					self.SndBuffer.append([
 						self.NextByteFill,
 						self.toHeader(seqNum=self.NextByteFill, sf=2) + b'0',
-						False,
-						time.time()
+						False
+						# debugging , time.time()
 					])
 					self.lock.release()
 					break
 				self.SndBuffer.append([
 					self.NextByteFill,
-					self.toHeader(seqNum=self.NextByteFill) + segment, False, time.time()
+					self.toHeader(seqNum=self.NextByteFill) + segment, False
+					# debugging, time.time()
 				])
 				self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
 			self.lock.release()
@@ -253,7 +254,7 @@ class LFTPClient(object):
 				if self.SndBuffer[i][2] == False and self.SndBuffer[i][
 						0] - self.NextSeqNum <= min(self.rwnd, self.cwnd):
 					# ZYD : package timer start
-					self.SndBuffer[i][3] = time.time()
+					self.SndBuffer[i].append(time.time())
 					self.socket.sendto(self.SndBuffer[i][1],
 									   self.serverAddress)
 					self.TimeStart = time.time()
