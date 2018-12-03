@@ -92,7 +92,7 @@ class LFTPServer(object):
 						if self.RcvBuffer[i][2] == 2:
 							self.file.close()
 							logger.info(
-								'File received, wait to close connection to {0}'.
+								'File received'.
 								format(self.clientAddress))
 							# ZYD : update here for encapsulation
 							# self.asyncCloseConnection()
