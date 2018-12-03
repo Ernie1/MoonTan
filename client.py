@@ -79,7 +79,7 @@ def clientMain():
 
 	# Transfer file
 	if COMMAND == "lsend":
-		logger.info("Send" + localFilePath + "to" + str(serverAddr))
+		logger.info("Send " + localFilePath + " to " + str(serverAddr))
 		UDPClient.sendFile(serverAddr, localFilePath)
 	else:
 		logger.info("Receive " + localFilePath + "to" + str(serverAddr))

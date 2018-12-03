@@ -65,17 +65,13 @@ class LFTPServer(object):
 			logger.info('Start to receive {0} from {1}'.format(
 				info['filename'], self.clientAddress))
 			self.NextSeqNum = seqNum + len(data)
-		else:
-			# ZYD : FIX An IMPORTANT BUG 1
-			if seqNum < self.NextSeqNum:
-				return;
+		elif len(self.RcvBuffer) < self.RcvBufferCapacity and seqNum >= self.NextSeqNum:
 			i = 0
 			while i < len(self.RcvBuffer) and self.RcvBuffer[i][0] < seqNum:
 				i += 1
 			# Determine whether duplicate
 			if len(self.RcvBuffer) == 0 or i == len(
-					self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum
-										and seqNum >= self.NextSeqNum):
+					self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum):
 				self.RcvBuffer.insert(i, (seqNum, data, sf))
 				# Cast out from self.RcvBuffer
 				i = 0

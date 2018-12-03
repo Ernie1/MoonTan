@@ -109,8 +109,8 @@ class LFTPClient(object):
 					break
 				self.SndBuffer.append([
 					self.NextByteFill,
-					self.toHeader(seqNum=self.NextByteFill) + segment, False
-					# debugging, time.time()
+					self.toHeader(seqNum=self.NextByteFill) + segment, False,
+					time.time()
 				])
 				self.NextByteFill += len(self.SndBuffer[-1][1]) - 12
 			self.lock.release()
@@ -125,7 +125,7 @@ class LFTPClient(object):
 			elif self.congestionStatus == "congestion avoidance":
 				self.cwnd += self.MSS*(self.MSS/self.cwnd)
 			elif self.congestionStatus == "fast recovery":
-				self.cwnd = ssthresh
+				self.cwnd = self.ssthresh
 				self.congestionStatus = "congestion avoidance"
 			else:
 				logger.info('congestionStatus error')
@@ -152,13 +152,13 @@ class LFTPClient(object):
 			if self.duplicateAck == 3:
 				self.retransmission()
 				if self.congestionStatus == "slow start":
-					self.ssthresh = cwnd/2
-					self.cwnd = ssthresh+3
+					self.ssthresh = self.cwnd/2
+					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
 				elif self.congestionStatus == "congestion avoidance":
 					print("duplicate ack")
-					self.ssthresh = cwnd/2
-					self.cwnd = ssthresh+3
+					self.ssthresh = self.cwnd/2
+					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
 				elif self.congestionStatus == "fast recovery":
 					pass
@@ -195,9 +195,7 @@ class LFTPClient(object):
 				self.switchCongestionStatus("new ack")
 				# Show progress
 				progress = self.progress
-				while (
-						self.NextSeqNum - self.initSeqNum
-				) / self.fileSize >= self.progress * 0.05:
+				while (	self.NextSeqNum - self.initSeqNum) / self.fileSize >= self.progress * 0.05:
 					self.progress += 1
 				if progress < self.progress:
 					logger.info('Sent {0}%'.format((self.progress - 1) * 5))
