@@ -26,7 +26,7 @@ class LFTPClient(object):
 		self.running = False
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.serverAddress = serverAddress
-		print(serverAddress)
+		# print(serverAddress)
 		self.file = open(filename, 'rb')
 		self.fileSize = os.path.getsize(filename)
 		self.MSS = MSS
@@ -97,7 +97,6 @@ class LFTPClient(object):
 		while self.running:
 			self.lock.acquire()
 			if self.first == True:
-				print (" self.first == True");
 				self.SndBuffer.append([
 					self.NextByteFill,
 					self.toHeader(seqNum=self.NextByteFill) + json.dumps(self.fileSize).encode(),
@@ -130,6 +129,7 @@ class LFTPClient(object):
 	# CONGESTION CONTROL, according to graph
 	def switchCongestionStatus(self, event):
 		oldStatus = self.congestionStatus
+
 		if event == "new ack":
 			self.duplicateAck = 0
 			if self.congestionStatus == "slow start":
@@ -168,7 +168,6 @@ class LFTPClient(object):
 					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
 				elif self.congestionStatus == "congestion avoidance":
-					print("duplicate ack")
 					self.ssthresh = self.cwnd/2
 					self.cwnd = self.ssthresh+3
 					self.congestionStatus = "congestion avoidance"
@@ -183,7 +182,7 @@ class LFTPClient(object):
 		if self.cwnd >= self.ssthresh:
 			self.congestionStatus = "congestion avoidance"
 		if oldStatus != self.congestionStatus:
-			logging.info(event + " happened. Switch from "+oldStatus+" to "+self.congestionStatus)
+			logging.info("Switch from "+oldStatus+" to "+self.congestionStatus)
 
 
 	def rcvAckAndRwnd(self):
@@ -212,7 +211,7 @@ class LFTPClient(object):
 					self.progress += 1
 				if progress < self.progress:
 					logger.info('Sent {0}%'.format((self.progress - 1) * 5))
-					logger.info('EstimatedRTT={0} DevRTT={1} TimeoutInterval={2}'.format(self.EstimatedRTT, self.DevRTT, self.TimeoutInterval))
+					logger.info('EstimatedRTT={0:.2} DevRTT={1:.2} TimeoutInterval={2:.2}'.format(self.EstimatedRTT, self.DevRTT, self.TimeoutInterval))
 				# Cast out from self.SndBuffer
 				while len(self.SndBuffer) and self.SndBuffer[0][0] < self.NextSeqNum:
 					# ZYD : get updateTimeoutInterval
