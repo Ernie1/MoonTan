@@ -4,9 +4,10 @@ import _thread
 import server
 import client
 
+
 def send(filePath, addr, socket):
     print("TCP: Send", filePath, "to", addr)
-    filePointer = open(filePath, "rb")
+    # filePointer = open(filePath, "rb")
 
     # Send file Len
     fileLen = os.path.getsize(filePath)
@@ -17,12 +18,12 @@ def send(filePath, addr, socket):
     fileLen = int(fileLen.decode('utf-8'))
 
     # Read file
-    fileData = bytearray(filePointer.read())
+    # fileData = bytearray(filePointer.read())
 
 
 def receive(filePath, addr, socket):
     print("TCP: Receive", filePath, "from", addr)
-    filePointer = open(filePath, "wb")
+    # filePointer = open(filePath, "wb")
 
     # Receive file len
     fileLen, addr = socket.recvfrom(1024)
@@ -32,7 +33,7 @@ def receive(filePath, addr, socket):
     # Send rwind
     rwind = 1024000
     socket.sendto(bytearray(str(rwind), "utf-8"), addr)
-    
+
 
 #debug
 if __name__ == "__main__":
