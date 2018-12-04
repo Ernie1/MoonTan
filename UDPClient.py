@@ -45,7 +45,7 @@ class LFTPClient(object):
 		self.DevRTT = 0
 		self.congestionStatus = "slow start"
 		self.cwnd = MSS
-		self.ssthresh = 32768
+		self.ssthresh = 65536
 
 		self.TimeStart = time.time()
 		# SYN
