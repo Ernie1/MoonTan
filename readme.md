@@ -8,36 +8,57 @@
 # Introduction
 We develop a novel network application to support large file transfer between two computers in the Internet, which is illuminating for using **UDP** as the transport layer protocol but anyway providing 100% **reliability**, **flow control** function and **congestion control** function similar as **TCP**. Furthermore, our application support multiple clients at the same time.
 # Related Work
+
+Generally, we observe the design of TCP protocol. However, we notes several parts that are slightly different from the standard TCP. 
+
 ## Standard Reliable Data Transfer
 - **MSS (maximum segment size)** is the maximum amount of application-layer data in the segment.
+
 - MSS is typically set by first determining the length of the largest link-layer frame that can be sent by the local sending host, the so-called, **MTU(maximum transmission unit)**.
+
 - When sends a large file, it typically breaks the file into chunks of size MSS.
+
 - The **sequence number** for a segment is therefore the byte-stream number of the first byte in the segment.
+
 - It randomly choose an initial sequence number.
+
 - The **acknowledgment number** that receiver puts in its segment is the sequence number of the next byte expected from sender.
+
 - Only acknowledges bytes up to the first missing byte in the stream, which is said to provide **cumulative acknowledgments**.
+
 - **Selective acknowledgment**, allows receiver to acknowledge out-of-order segments selectively rather than just cumulatively acknowledging the last correctly received, inorder segment.
+
 - **RTT** (round-trip time), which is the time it takes for a small packet to travel from sender to receiver and then back to the sender.
+
 - **SampleRTT**, for a segment is the amount of time between when the segment is sent (that is, passed to IP) and when an acknowledgment for the segment is received. The SampleRTT is being estimated for only one of the transmitted (except a segment that has been retransmitted) but currently unacknowledged segments, leading to a new value of SampleRTT approximately once every RTT.
+
 - **EWMA (exponential weighted moving average)** of EstimatedRTT:  
-```EstimatedRTT = 0.875 • EstimatedRTT + 0.125 • SampleRTT```
-- RTT variation, **DevRTT**:  
-```DevRTT = 0.75 • DevRTT + 0.25 • | SampleRTT – EstimatedRTT |```
+
+  ```EstimatedRTT = 0.875 • EstimatedRTT + 0.125 • SampleRTT```
+
+- RTT variation, **DevRTT**: 
+
+  ```DevRTT = 0.75 • DevRTT + 0.25 • | SampleRTT – EstimatedRTT |```
+
 - Determines the retransmission **timeout interval**:  
-```TimeoutInterval = EstimatedRTT + 4 • DevRTT```
+
+  ```TimeoutInterval = EstimatedRTT + 4 • DevRTT```
+
 - An initial TimeoutInterval value of 1 second is recommended.
+
 - Each time TCP retransmits, it sets the next timeout interval to twice the previous value.
+
 - Simplified TCP sender:
     ```c
     /* Assume sender is not constrained by TCP flow or congestion control, that data from above is less
     than MSS in size, and that data transfer is in one direction only. */
-
+    
     NextSeqNum=InitialSeqNumber
     SendBase=InitialSeqNumber
-
+    
     loop (forever) {
         switch(event)
-
+    
             event: data received from application above
                 create TCP segment with sequence number NextSeqNum
                 if (timer currently not running)
@@ -73,11 +94,16 @@ We develop a novel network application to support large file transfer between tw
     } /* end of loop forever */
     ```
 ## Standard Flow Control
-- Sender maintains a variable called the **receive window**, denoted **rwnd**. Informally, the receive window is used to give the sender an idea of how much free buffer space is available at the receiver:  
-```rwnd = RcvBuffer – [LastByteRcvd – LastByteRead]```
+- Sender maintains a variable called the **receive window**, denoted **rwnd**. Informally, the receive window is used to give the sender an idea of how much free buffer space is available at the receiver: 
+
+  ```rwnd = RcvBuffer – [LastByteRcvd – LastByteRead]```
+
 - Receiver places its current value of rwnd in the receive window field of every segment it sends to sender.
-- Sender make sure that:  
-```LastByteSent – LastByteAcked ≦ rwnd```
+
+- Sender make sure that: 
+
+  ```LastByteSent – LastByteAcked ≦ rwnd```
+
 - When receiver's receive buffer becomes full so that rwnd = 0, to avoid sender being blocked, it requires sender to continue to send segments with one data byte. These segments will be acknowledged by the receiver. Eventually the buffer will begin to empty and the acknowledgments will contain a nonzero rwnd value.
 ## Standard Connection Management
 - TCP three-way handshake: segment exchange:  
@@ -90,7 +116,7 @@ We develop a novel network application to support large file transfer between tw
 - Sender keeps track of an variable, the **congestion window**, denoted **cwnd**, imposes a constraint on the rate at which a TCP sender can send traffic into the network, roughly **cwnd/RTT bytes/sec**.
 - FSM description of congestion control:  
 ![](https://i.stack.imgur.com/cJDMC.png)
-## Our implementation of Congestion Control
+### Implementation of Congestion Control
 
 - In our design, we neatly follow the FSM as above, receiving the events (init, new ACK, duplicate ACK, timeout) as parameters and judging the current status of congestion control. And then calling the `retransmission` function we have implemented when `timeout` or `duplicate ack` event happens.  And we change ssthresh, cwnd, congestion status and duplicateAck according to the FSM, outputing corresponding logs describing the change of congestion status. 
 - To listen the events which will trigger these events, we judge some of them related to `ack` in `rcvAckAndRwnd` function which is a thread to deal with receiving packets, and the other related to timeout in `detectTimeout` function which is another thread to running all the time and judge whether the difference between the current time and startTime is more than the timeout interval (controlled by RTT).  
@@ -226,17 +252,17 @@ In this test case, we try to transfer the movie, *The Hunger Games*, using the c
 
 In the client side, logs of debugging message of LFTP is as follows, including the process of `establishing connection`, `progress message`, `the change of congestion status`, `the change of RTT`, `the sequence number of the packet retransmitted`. 
 
-![clientDebuggingMsg](./imgs/clientDebuggingMsg.png)
+<img src="./imgs/clientDebuggingMsg.png" width="600"/>
 
 #### Server Side
 
 In the server side, in other words, receiving side, the output message includes the progress messages and average speed in each 5% progress. 
 
-![lsendServer](./imgs/lsendServer.png)
+<img src="./imgs/lsendServer.png" width="600"/>
 
 when finishing receiving the file, the file can play. 
 
-<img src="./imgs/normallyPlay.png" width="400"/>
+<img src="./imgs/normallyPlay.png" width="400" align="center"/>
 
 ### `lget`
 
@@ -246,17 +272,17 @@ In `lget` command, two sides act in the same way but their roles exchange.
 
 To test multi-users, we create 3 directories, each of which includes the sub directory `Test/Client` to receive the file from the server and necessary python programs (`client.py`, `UDPSender.py`, `UDPReceiver.py`).
 
-![beforeMulti](./imgs/beforeMulti.png)
+<img src="./imgs/beforeMulti.png" width="400"/>
 
 During the file transferring process, compared with single user mode, 3 client divides the speed averagely. 
 
-![inMulti1](./imgs/inMulti1.png)
+<img src="./imgs/inMulti1.png" width="1200"/>
 
-![AfterMulti](./imgs/AfterMulti.png)
+<img src="./imgs/AfterMulti.png" width="600"/>
 
 After they finishing receiving the file, the content in the directories is as follows:
 
-![multiResult](./imgs/multiResult.png)
+<img src="./imgs/multiResult.png" width="600"/>
 
 And all of received file can be executed well, guaranteeing the 100% reliability. 
 
