@@ -85,7 +85,7 @@ class LFTPServer(object):
 				self.NextSeqNum = seqNum + len(data)
 				self.lastTime = time.time()
 			else:
-				# Show progress
+				# Show speed
 				progress = self.progress
 				tempFileName = self.filename.split('/')[-1]
 				while self.count * self.MSS/ self.fileSize  >= self.progress * 0.05:
