@@ -9,6 +9,7 @@ import json
 # import threading
 import time
 import os
+import sys
 
 # Initialize logger
 logging.basicConfig(
@@ -50,10 +51,16 @@ class LFTPServer(object):
 		# self.rwnd doesn't contains the length of segment header for convenient
 		self.rwnd = 0
 		self.RcvBuffer = []  # [(SeqNum, Data, sf)]
+		self.first = True
+		self.fileSize = 0
+		self.progress = 1
+		self.count = 0
+		self.lastTime = 0
 
 	def rcvSegment(self, segment):
 		seqNum, _, _, sf, _ = fromHeader(segment)
 		data = segment[12:]
+
 		# ZYD : add a tmp var
 		finishFlag = False
 		# SYN
@@ -66,34 +73,70 @@ class LFTPServer(object):
 				info['filename'], self.clientAddress))
 			self.NextSeqNum = seqNum + len(data)
 		elif len(self.RcvBuffer) < self.RcvBufferCapacity and seqNum >= self.NextSeqNum:
-			i = 0
-			while i < len(self.RcvBuffer) and self.RcvBuffer[i][0] < seqNum:
-				i += 1
-			# Determine whether duplicate
-			if len(self.RcvBuffer) == 0 or i == len(
-					self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum):
-				self.RcvBuffer.insert(i, (seqNum, data, sf))
-				# Cast out from self.RcvBuffer
-				i = 0
-				while i < len(self.RcvBuffer
-							  ) and self.NextSeqNum == self.RcvBuffer[i][0]:
-					self.NextSeqNum += len(self.RcvBuffer[i][1])
-					# FIN
-					if self.RcvBuffer[i][2] == 2:
-						self.file.close()
-						logger.info(
-							'File received, wait to close connection to {0}'.
-							format(self.clientAddress))
-						# ZYD : update here for encapsulation
-						# self.asyncCloseConnection()
-						finishFlag = True
+			if self.first == True:
+				self.fileSize = json.loads(data.decode())
+				self.first = False
+				if self.fileSize > 1073741824:
+					logger.info("The size of file to be received is {:.3} GB".format(self.fileSize/1073741824))
+				elif self.fileSize > 1048576:
+					logger.info("The size of file to be received is {:.3} MB".format(self.fileSize/1048576))
+				else:
+					logger.info("The size of file to be received is {:.3} KB".format(self.fileSize/1024))
+				self.NextSeqNum = seqNum + len(data)
+				self.lastTime = time.time()
+			else:
+				# Show progress
+				progress = self.progress
+				tempFileName = self.filename.split('/')[-1]
+				while self.count * self.MSS/ self.fileSize  >= self.progress * 0.05:
+					self.progress += 1
+				if progress < self.progress:
+					logger.info('Received {0}%'.format((self.progress - 1) * 5))
+					speed = self.count * self.MSS/(time.time() - self.lastTime)
+					if speed > 1073741824:
+						logger.info("Speed: {:.4} GB/s".format(speed/1073741824))
+					elif speed > 1048576:
+						logger.info("Speed: {:.4} MB/s".format(speed/1048576))
 					else:
-						self.file.write(self.RcvBuffer[i][1])
+						logger.info("Speed: {:.4} KB/s".format(speed/1024))
+				# Cast out from self.SndBuffer
+				# while len(self.SndBuffer) and self.SndBuffer[0][0] < self.NextSeqNum:
+				# 	# ZYD : get updateTimeoutInterval
+				# 	self.updateTimeoutInterval(self.SndBuffer[0][3])
+				# 	s = self.SndBuffer.pop(0)
+				# 	# Determine whether last cast out is FIN
+				# 	if len(self.SndBuffer) == 0 and self.fromHeader(s[1])[3] == 2:
+				# 		self.running = False
+				# 		self.socket.close()
+				# 		logger.info('Finished')
+				# finish showing progress
+				i = 0
+				while i < len(self.RcvBuffer) and self.RcvBuffer[i][0] < seqNum:
 					i += 1
-				self.RcvBuffer = self.RcvBuffer[i:]
-				# ZYD : FIX An IMPORTANT BUG 2
-				if len(self.RcvBuffer) == self.RcvBufferCapacity:
-					self.RcvBuffer.pop(0)
+				# Determine whether duplicate
+				if len(self.RcvBuffer) == 0 or i == len(self.RcvBuffer) or (self.RcvBuffer[i][0] != seqNum):
+					self.RcvBuffer.insert(i, (seqNum, data, sf))
+					# Cast out from self.RcvBuffer
+					i = 0
+					while i < len(self.RcvBuffer) and self.NextSeqNum == self.RcvBuffer[i][0]:
+						self.NextSeqNum += len(self.RcvBuffer[i][1])
+						# FIN
+						if self.RcvBuffer[i][2] == 2:
+							self.file.close()
+							logger.info(
+								'File received'.
+								format(self.clientAddress))
+							# ZYD : update here for encapsulation
+							# self.asyncCloseConnection()
+							finishFlag = True
+						else:
+							self.file.write(self.RcvBuffer[i][1])
+							self.count+=1;
+						i += 1
+					self.RcvBuffer = self.RcvBuffer[i:]
+					# ZYD : FIX An IMPORTANT BUG 2
+					if len(self.RcvBuffer) == self.RcvBufferCapacity:
+						self.RcvBuffer.pop(0)
 		# ACK
 		self.socket.sendto(
 			toHeader(
@@ -130,6 +173,7 @@ class ServerSocket(object):
 	def listen(self, filename):
 		while True:
 			segment, clientAddress = self.socket.recvfrom(self.MSS + 12)
+			# logger.info("receive from client")
 			# Cast out from self.connections
 			for c in list(self.connections.items()):
 				if c[1].finished:
