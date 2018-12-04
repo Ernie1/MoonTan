@@ -74,7 +74,7 @@ During the file transferring process, compared with single user mode, 3 client d
 
 ![inMulti1](./imgs/inMulti1.png)
 
-![afterMulti](./imgs/afterMulti.png)
+![AfterMulti](./imgs/AfterMulti.png)
 
 After they finishing receiving the file, the content in the directories is as follows:
 
