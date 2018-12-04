@@ -170,7 +170,7 @@ There's four things to do for a client.
 # Experiments
 We conduct the following experiments to observe the behaviors and demonstrate the effectiveness of this program.
 
-## Getting started
+## Getting Started
 Firstly, clone this repository on both client and server side and enter the cloned directory.  
 ```console
 # git clone https://github.com/Ernie1/MoonTan.git
