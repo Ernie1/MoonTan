@@ -175,7 +175,7 @@ Firstly, clone this repository on both client and server side and enter the clon
 ```console
 # git clone https://github.com/Ernie1/MoonTan.git
 ```
-Secondly, you should create new directory.
+Secondly, create new directory.
 - Client
     ```console
     # mkdir Test 
@@ -189,7 +189,7 @@ Secondly, you should create new directory.
 
 Then, put the file you would like to send to the server in the `Client` while put those you would like to get from the server in `Server`.   
 
-Now, you can run this program.
+Now, run this program.
 
 - The format of input in the command line of server side is:
 
@@ -203,7 +203,7 @@ Now, you can run this program.
   #  ./client.py {lsend, lget}  servername:serverport myLargeFileName
   ```
 
-## Single Machine Example
+## Single Machine Experiment
 
 ### Environment
 - `Windows Ubuntu 18.04 bash ` (**cannot execute directly in windows 10 CMD**) 
@@ -260,12 +260,12 @@ After they finishing receiving the file, the content in the directories is as fo
 
 And all of received file can be executed well, guaranteeing the 100% reliability. 
 
-## Online Example
+## Online Experiment
 - Environment
   - Server - `Ubuntu 14.04.1` connects to optical fiber
   - Client - `macOS Mojave 10.14.1` connects to wireless 
 
-We deploy the program in real network environment. We run the program on a public server and open 2 console windows on personal computer to create clients. Client 1 and Client 2 `lsend` files to server simultaneously. Each client `lget` file as soon as it finishes sending file.
+We deploy the program in real network environment. We run the program on a public server and open two console windows on personal computer to create clients. Client 1 and Client 2 `lsend` files to server simultaneously. Each client `lget` file as soon as it finishes sending file.
 - Client 1 `lsend`
     ```console
     Ernie1:src zjq$ python3 client.py lsend 222.200.180.151:16666 test1.mp4
@@ -712,4 +712,4 @@ We deploy the program in real network environment. We run the program on a publi
     2018-12-04 18:00:15,212 - INFO - rcvAckAndRwnd - EstimatedRTT=0.0073 DevRTT=0.0011 TimeoutInterval=0.011
     2018-12-04 18:00:15,213 - INFO - rcvAckAndRwnd - Finished
     ```
-According to the results above, our program performs competently in the real network such as the well action of retransmission. Besides, we could find an interesting and factual phenomenon that the upload speed (slower than 500 KB/s) is much slower than the download speed (faster than 5 MB/s) on personal computer.
+According to the results above, our program performs competently in the real network environment such as the well action of retransmission on server side. Besides, we could find an interesting and factual phenomenon that the upload speed (slower than 500 KB/s) is much slower than the download speed (faster than 5 MB/s) on personal computer.
